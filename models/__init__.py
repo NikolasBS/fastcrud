@@ -1,1 +1,2 @@
-from .CrudAPI import *
+from .schemas import *
+from .model import *

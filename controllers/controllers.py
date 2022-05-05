@@ -1,47 +1,32 @@
-from fastapi import APIRouter, HTTPException
-from models import CrudAPI, arrays, CrudAPIBody
+from models import schemas, model
+from sqlalchemy.orm import Session
 
-home = APIRouter(prefix="")
+async def get_posts(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(model.Post).offset(skip).limit(limit).all()
 
-@home.get("/")
-async def home_home():
-    return {"home": "The Homepage"}
 
-@home.get("/crudapi")
-async def index():
-    return {"arrays":tuple(map(lambda bp : bp.__dict__, arrays))}
+async def get_post(db: Session, id:int):
+    return db.query(model.Post).filter(model.Post.id == id).first()
 
-@home.get("/crudapi/{id}")
-async def show(id:int):
-    if len(arrays) < id:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return arrays[id].__dict__
 
-@home.post("/crudapi")
-async def create(array: CrudAPIBody):
-    
-    arrays.append(CrudAPI(array.title, array.body))
-    
-    return array.__dict__
+async def create_post(db: Session, post: schemas.PostCreate):
+    db_post = model.Post(title=post.title, body=post.body)
+    db.add(db_post)
+    db.commit()
+    db.refresh(db_post)
+    return db_post
+ 
 
-@home.api_route("/crudapi/{id}", methods=["Put", "Patch"])
-async def update(id: int, array: CrudAPIBody):
-    
-    if len(arrays) < id:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    target = arrays[id]
-    target.title = array.title
-    target.body = array.body
-    
-    return target.__dict__
+async def update_post(db: Session, post: schemas.Post):
+    db_post = db.query(model.Post).filter(model.Post.id == id).first()
+    db_post.title = post.title
+    db_post.body = post.body
+    db.commit()
+    db.refresh(db_post)
+    return db_post
 
-@home.delete("/crudapi/{id}")
-async def remove(id: int):
-    
-    if len(arrays) < id:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    array = arrays.pop(id)
-    
-    return array.__dict__
+
+async def delete_post(db: Session, id:int):
+    db_post = db.query(model.Post).filter(model.Post.id == id).first()
+    db.delete(db_post)
+    db.commit()
