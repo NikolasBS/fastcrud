@@ -5,7 +5,7 @@ USE_DOTENV = environ.get("USE_DOTENV")
 if(USE_DOTENV):
     load_dotenv()
 
-config = {
+variables = {
     ## Your Development Environment
     "ENV": environ.get("ENV") if environ.get("ENV") else "development",
     ## SECRET_KEY
