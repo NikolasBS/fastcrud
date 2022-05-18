@@ -1,92 +1,122 @@
 import pytest
-
-from httpx import AsyncClient
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from database.config import Base, async_session
 from app import app
-from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_ENTITY
 
-@pytest.fixture
-async def client():
-    async with AsyncClient(app=app, base_url='http://localhost:7000') as client:
-        yield client
+SQLALCHEMY_DATABASE_URL = "sqlite:///test/test.db"
 
-@pytest.mark.anyio   
-async def test_post_new_post(client):
-    response = await client.post(
-            "/post", 
-            json={"title": "This is a test", "body": "This is a test body"}
-        )
-    assert response.status_code == 200, response.text
-    id = response["id"]
-    assert response.json() == {
-        "title": "This is a test", "body": "This is a test body", "id": f"{id}"
-        }
-    
-@pytest.mark.anyio
-async def test_post(client):
-    response = await client.post(
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+Base.metadata.create_all(bind=engine)
+
+
+def override_get_db():
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()
+
+
+app.dependency_overrides[async_session] = override_get_db
+
+client = TestClient(app)
+
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+@pytest.mark.xfail        
+def test_cleanup():
+    with TestClient(app) as client:
+        response = client.get("/post")
+        print(response.json())
+        
+
+def test_post_new_post():
+  
+    response = client.post(
         "/post", 
         json={"title": "This is a test", "body": "This is a test body"}
         )
-    assert response.status_code == 200, response.text
-    id = response["id"]
-    assert response.json() == {
-        "title": "This is a test", "body": "This is a test body", "id": f"{id}"
+    assert response.status_code == 200
+    key = int(response.json())
+    print (key)
+    response2 = client.get(f"/post/{key}")
+    assert response2.json()['Post'] == {
+        "title": "This is a test", "body": "This is a test body", "id": key
         }
+
+def test_post_new_post2():
     
-@pytest.mark.anyio
-async def test_get_first_post(client):
-    response = await client.get("/post/0")
-    assert response.status_code == 200, response.text
-    id = response["id"]
-    assert response.json() == {
-        "title": "This is a test",
-        "body": "This is a test body"
-    }
-
-@pytest.mark.anyio
-async def test_update_post(client):
-    response = await client.put(
-        "/post/0", 
-        json={"title": "UPDATED TEST", "body": "UPDATED BODY TEST"}
+    response = client.post(
+        "/post", 
+        json={"title": "This is a test", "body": "This is a test body"}
         )
-    assert response.status_code == 200, response.text
-    id = response["id"]
-    assert response.json() == {"title": "UPDATED TEST", "body": "UPDATED BODY TEST", "id": f"{id}"}
+    assert response.status_code == 200
+    key = int(response.json())
+    response2 = client.get(f"/post/{key}")
+    assert response2.json()['Post'] == {
+        "title": "This is a test", "body": "This is a test body", "id": key
+        }
 
-@pytest.mark.anyio
-async def test_delete_post(client):
-    response = await client.delete("/post/0")
-    assert response.status_code == 200, response.text
+def test_get_first_post():
+    response = client.get("/post/1")
+    assert response.status_code == 200
+    id = response.json()['Post']['id']
+    assert response.json()['Post'] == {
+        "title": "This is a test", "body": "This is a test body", "id": id
+        }
+    print (response.json())
 
-@pytest.mark.anyio
-async def test_get_all_posts(client):
-    response = await client.get("/post/")
-    assert response.status_code == 200, response.text
-    """ assert response.json() == {'arrays': [{'body': 'This is a test body', 'title': 'This is a test'}]} """
 
-@pytest.mark.anyio
-async def test_get_nonexistent_post(client):
-    response = await client.get("/post/10")
-    assert response.status_code == HTTP_404_NOT_FOUND, response.text
 
-@pytest.mark.anyio    
-async def test_remove_nonexistent_post(client):
-    response = await client.delete("/post/10")
-    assert response.status_code == HTTP_404_NOT_FOUND, response.text
-
-@pytest.mark.anyio
-async def test_update_nonexistent_post(client):
-    id = 10
-    response = await client.put(
-        f"/post/{id}", 
-        json={"title": "UPDATED TEST", "body": "UPDATED BODY TEST", "id": f"{id}"}
+def test_update_post():
+    response = client.put(
+        "/post/2", 
+        json={"title": "UPDATED TEST", "body": "UPDATED BODY TEST", "id": 2}
         )
-    assert response.status_code == HTTP_404_NOT_FOUND, response.text
+    print (response.json())
+    assert response.status_code == 200
+    id = response.json()['Post']['id']
+    assert response.json()['Post'] == {"title": "UPDATED TEST", "body": "UPDATED BODY TEST", "id": id}
 
-@pytest.mark.anyio
-async def test_post_new_post_without_body(client):
-    response = await client.post(
+def test_delete_post():
+    response = client.delete("/post/1")
+    assert response.status_code == 200
+
+def test_get_all_posts():
+    response = client.get("/post/")
+    assert response.status_code == 200
+    print(response.json())
+    
+
+def test_get_nonexistent_post():
+    response = client.get("/post/1000")
+    print(f"something {response.json()}")
+    assert response.status_code == 404
+    
+def test_remove_nonexistent_post():
+    response = client.delete("/post/1000")
+    assert response.status_code == 404
+
+def test_update_nonexistent_post():
+    response = client.put(
+        "/post/1000", 
+        json={"title": "UPDATED TEST", "body": "UPDATED BODY TEST", "id": 1000}
+        )
+    assert response.status_code == 404, response.text
+
+def test_post_new_post_without_body():
+    response = client.put(
         "/post", 
         json={"title": "This is a test"}
         )
-    assert response.status_code == HTTP_422_UNPROCESSABLE_ENTITY, response.text
+    assert response.status_code == 405, response.text
