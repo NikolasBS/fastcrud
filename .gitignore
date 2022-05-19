@@ -222,3 +222,4 @@ $RECYCLE.BIN/
 
 fastcrudapp.db
 test_app_async.py
+test.db
